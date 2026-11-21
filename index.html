@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeshWeaver | P2P Async Task Broker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans antialiased min-h-screen p-6">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Top Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between border-b border-zinc-800 pb-5 gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <h1 class="text-2xl font-semibold tracking-tight text-white">MeshWeaver P2P Task Broker</h1>
+        </div>
+        <p class="text-sm text-zinc-400 mt-1">Zero-Dependency Kademlia DHT + Gossip Telemetry + TLS/HMAC Remote Execution</p>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="flex flex-wrap items-center gap-3">
+        <button onclick="submitTask('monte_carlo', 250000)"
+          class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition">
+          + Dispatch Monte Carlo Task
+        </button>
+        <button onclick="submitTask('matrix_stress', 400000)"
+          class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm font-medium text-zinc-200 transition">
+          + Dispatch Stress Compute
+        </button>
+        <button onclick="triggerChaosFailover()"
+          class="px-4 py-2 rounded-lg bg-rose-600/90 hover:bg-rose-500 text-sm font-medium text-white transition">
+          Kill Lowest-CPU Node (Failover Test)
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+        <div class="text-xs uppercase tracking-wider text-zinc-400">Coordinator Node</div>
+        <div id="seed-id" class="text-xl font-mono font-semibold text-emerald-400 mt-1">--</div>
+        <div id="seed-ports" class="text-xs text-zinc-500 mt-1">UDP:-- | TLS-TCP:--</div>
+      </div>
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+        <div class="text-xs uppercase tracking-wider text-zinc-400">Active DHT Peers</div>
+        <div id="peer-count" class="text-xl font-mono font-semibold text-white mt-1">0</div>
+        <div class="text-xs text-zinc-500 mt-1">Discovered via Kademlia Gossip</div>
+      </div>
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+        <div class="text-xs uppercase tracking-wider text-zinc-400">Coordinator CPU / RAM</div>
+        <div id="seed-load" class="text-xl font-mono font-semibold text-amber-400 mt-1">--% / --%</div>
+        <div class="text-xs text-zinc-500 mt-1">Live psutil telemetry</div>
+      </div>
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+        <div class="text-xs uppercase tracking-wider text-zinc-400">Security Layer</div>
+        <div class="text-xl font-mono font-semibold text-cyan-400 mt-1">TLS 1.3 + HMAC</div>
+        <div class="text-xs text-zinc-500 mt-1">SHA-256 signed cloudpickle</div>
+      </div>
+    </div>
+
+    <!-- Main Grid: DHT Peers & Task Queue -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- Kademlia DHT Peer Table -->
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-zinc-800 flex justify-between items-center">
+          <h2 class="text-sm font-semibold text-zinc-200">Kademlia DHT Mesh Topology (Sorted by Lowest CPU)</h2>
+          <span class="text-xs text-zinc-500">Gossip Interval: 3s</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-zinc-950/60 text-zinc-400 text-xs uppercase">
+              <tr>
+                <th class="px-4 py-3">Node ID</th>
+                <th class="px-4 py-3">Endpoint</th>
+                <th class="px-4 py-3">XOR Dist</th>
+                <th class="px-4 py-3 text-right">CPU</th>
+                <th class="px-4 py-3 text-right">RAM</th>
+              </tr>
+            </thead>
+            <tbody id="peers-body" class="divide-y divide-zinc-800/70 font-mono text-xs">
+              <tr><td colspan="5" class="px-4 py-6 text-center text-zinc-500">Discovering peers...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Distributed Task Queue -->
+      <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-zinc-800 flex justify-between items-center">
+          <h2 class="text-sm font-semibold text-zinc-200">Distributed Task Execution & Failover Log</h2>
+          <span class="text-xs text-zinc-500">cloudpickle RPC</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-zinc-950/60 text-zinc-400 text-xs uppercase">
+              <tr>
+                <th class="px-4 py-3">Task</th>
+                <th class="px-4 py-3">Function</th>
+                <th class="px-4 py-3">Assigned Peer</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3">Output</th>
+              </tr>
+            </thead>
+            <tbody id="tasks-body" class="divide-y divide-zinc-800/70 font-mono text-xs">
+              <tr><td colspan="5" class="px-4 py-6 text-center text-zinc-500">No tasks dispatched yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Mesh Event Stream -->
+    <div class="bg-zinc-900/80 border border-zinc-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-zinc-200 mb-3">Live P2P Mesh & Heartbeat Event Stream</h2>
+      <div id="logs-box" class="bg-zinc-950 border border-zinc-800/80 rounded-lg p-4 font-mono text-xs text-zinc-300 h-48 overflow-y-auto space-y-1.5">
+        <div>Initializing mesh telemetry...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    async function fetchMeshStatus() {
+      try {
+        const res = await fetch('/api/mesh/status');
+        const data = await res.json();
+        if (data.error) return;
+
+        // Update Summary
+        document.getElementById('seed-id').textContent = data.seed_node.node_id;
+        document.getElementById('seed-ports').textContent = `UDP:${data.seed_node.udp_port} | TLS-TCP:${data.seed_node.tcp_port}`;
+        document.getElementById('peer-count').textContent = data.seed_node.active_peers_count;
+        document.getElementById('seed-load').textContent = `${data.seed_node.cpu_load}% / ${data.seed_node.ram_load}%`;
+
+        // Update Peers Table
+        const peersBody = document.getElementById('peers-body');
+        if (data.peers.length === 0) {
+          peersBody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-zinc-500">Waiting for gossip convergence...</td></tr>';
+        } else {
+          peersBody.innerHTML = data.peers.map((p, idx) => `
+            <tr class="${idx === 0 ? 'bg-emerald-950/20' : ''}">
+              <td class="px-4 py-2.5 text-emerald-400 font-semibold">${p.node_id} ${idx === 0 ? '<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">NEXT TARGET</span>' : ''}</td>
+              <td class="px-4 py-2.5 text-zinc-300">${p.endpoint}</td>
+              <td class="px-4 py-2.5 text-zinc-500">${p.xor_distance}</td>
+              <td class="px-4 py-2.5 text-right text-amber-300">${p.cpu_load}%</td>
+              <td class="px-4 py-2.5 text-right text-zinc-300">${p.ram_load}%</td>
+            </tr>
+          `).join('');
+        }
+
+        // Update Tasks Table
+        const tasksBody = document.getElementById('tasks-body');
+        if (data.tasks.length === 0) {
+          tasksBody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-zinc-500">Click a dispatch button above to run a remote task</td></tr>';
+        } else {
+          tasksBody.innerHTML = data.tasks.map(t => {
+            let badge = 'text-amber-400';
+            if (t.status === 'COMPLETED') badge = 'text-emerald-400';
+            if (t.status.includes('FAILED')) badge = 'text-rose-400';
+            return `
+              <tr>
+                <td class="px-4 py-2.5 text-cyan-400">${t.task_id}</td>
+                <td class="px-4 py-2.5 text-zinc-200">${t.func}</td>
+                <td class="px-4 py-2.5 text-zinc-300">${t.target}</td>
+                <td class="px-4 py-2.5 font-semibold ${badge}">${t.status}</td>
+                <td class="px-4 py-2.5 text-zinc-300">${t.result}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // Update Logs
+        const logsBox = document.getElementById('logs-box');
+        logsBox.innerHTML = data.logs.map(line => {
+          const color = line.includes('FAILOVER') || line.includes('CHAOS') || line.includes('ALERT')
+            ? 'text-rose-400'
+            : line.includes('succeeded')
+            ? 'text-emerald-400'
+            : 'text-zinc-300';
+          return `<div class="${color}">${line}</div>`;
+        }).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function submitTask(taskType, iterations) {
+      await fetch('/api/tasks/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_type: taskType, iterations })
+      });
+      fetchMeshStatus();
+    }
+
+    async function triggerChaosFailover() {
+      await fetch('/api/chaos/kill-lowest', { method: 'POST' });
+      fetchMeshStatus();
+    }
+
+    setInterval(fetchMeshStatus, 1000);
+    fetchMeshStatus();
+  </script>
+</body>
+</html>
